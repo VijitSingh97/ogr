@@ -12,6 +12,9 @@ brew tap vijitsingh97/ogr https://github.com/VijitSingh97/ogr.git
 brew install vijitsingh97/ogr/ogr
 ```
 
+If Homebrew reports that the formula is not trusted, run
+`brew trust --formula vijitsingh97/ogr/ogr`, then retry the install command.
+
 The formula installs Python 3.13. It uses the system Git on macOS and installs
 Git on Linux. macOS uses `/usr/bin/open`; Linux also requires `xdg-open`,
 normally provided by the distribution's `xdg-utils` package.
