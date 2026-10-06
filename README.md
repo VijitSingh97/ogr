@@ -63,8 +63,8 @@ ogr --print .
 
 Without `--branch`, `ogr` opens the repository root for any HTTP(S), SSH,
 scp-style, or `git://` remote. It preserves HTTP(S) and converts SSH and `git://`
-remotes to HTTPS, removes a
-trailing `.git`, credentials, query, fragment, and SSH port, and retains an
+remotes to HTTPS, removes a trailing `.git`, credentials, query, fragment, and
+SSH port, and retains an
 explicit HTTP(S) port. Spaces and Unicode characters are percent-encoded.
 
 Branch pages are supported on:
@@ -82,6 +82,31 @@ branch name.
 
 Use `--print` in scripts or to inspect the normalized URL without starting a
 browser.
+
+## Shell completion
+
+Both packages install Bash and Zsh completions for options, remote names, and
+repository directories. Open a new terminal after installation.
+
+For Bash, add the line matching your installation to `~/.bashrc`:
+
+```sh
+source "$(brew --prefix)/etc/bash_completion.d/ogr"       # Homebrew
+# source /usr/share/bash-completion/completions/ogr      # APT
+# source "$HOME/.local/share/bash-completion/completions/ogr" # Source
+```
+
+For Zsh, add the appropriate directory to `fpath` before your existing
+`compinit` call, or before loading Oh My Zsh:
+
+```sh
+fpath=("$(brew --prefix)/share/zsh/site-functions" $fpath) # Homebrew
+# fpath=(/usr/share/zsh/vendor-completions $fpath)        # APT
+# fpath=("$HOME/.local/share/zsh/site-functions" $fpath)  # Source
+```
+
+If completion is not enabled yet, add `autoload -Uz compinit; compinit` after
+that line. Oh My Zsh already runs `compinit`.
 
 ## Development
 
