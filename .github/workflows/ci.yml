@@ -56,6 +56,8 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends ca-certificates git make python3 zsh shellcheck xdg-utils
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Trust the container checkout
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - run: make check test deb
       - name: Test package installation
         run: |
