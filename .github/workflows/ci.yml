@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: CLI tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-15, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Install test tools on macOS
+        if: runner.os == 'macOS'
+        run: brew install shellcheck
+      - name: Install test tools on Linux
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck zsh xdg-utils
+      - run: make check test
+      - run: shellcheck scripts/*.sh completions/ogr.bash
+      - name: Verify installation and completion
+        run: |
+          stage=$(mktemp -d)
+          make install DESTDIR="$stage" PREFIX=/usr
+          test "$("$stage/usr/bin/ogr" --version)" = "ogr $(cat VERSION)"
+          bash -c 'source "$1"; complete -p ogr' -- "$stage/usr/share/bash-completion/completions/ogr"
+          zsh -fc 'fpath=("$1" $fpath); autoload -Uz compinit; compinit -D -i; [[ ${_comps[ogr]} == _ogr ]]' -- "$stage/usr/share/zsh/site-functions"
+      - name: Smoke-test public Homebrew installation
+        if: github.event_name == 'workflow_dispatch' && runner.os == 'macOS' && hashFiles('Formula/ogr.rb') != ''
+        run: |
+          brew tap vijitsingh97/ogr https://github.com/VijitSingh97/ogr.git
+          brew install vijitsingh97/ogr/ogr
+          brew test vijitsingh97/ogr/ogr
+
+  debian:
+    name: Debian package (${{ matrix.container }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        container: [debian:12-slim, debian:13-slim]
+    container: ${{ matrix.container }}
+    steps:
+      - name: Install test tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates git make python3 zsh shellcheck xdg-utils
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - run: make check test deb
+      - name: Test package installation
+        run: |
+          apt-get install -y --no-install-recommends ./dist/*.deb
+          test "$(ogr --version)" = "ogr $(cat VERSION)"
+          ogr --print
+          bash -c 'source /usr/share/bash-completion/completions/ogr; complete -p ogr'
+          zsh -fc 'autoload -Uz compinit; compinit -D; [[ ${_comps[ogr]} == _ogr ]]'
+
+  apt-install:
+    name: Public APT install (${{ matrix.container }})
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        container: [ubuntu:22.04, ubuntu:24.04, debian:12-slim, debian:13-slim]
+    container: ${{ matrix.container }}
+    steps:
+      - name: Install from the signed feed
+        run: |
+          apt-get update
+          apt-get install -y ca-certificates curl
+          install -d -m 0755 /etc/apt/keyrings
+          curl -fsSL https://vijitsingh97.github.io/ogr/ogr.asc -o /etc/apt/keyrings/ogr.asc
+          chmod 0644 /etc/apt/keyrings/ogr.asc
+          printf 'Types: deb\nURIs: https://vijitsingh97.github.io/ogr/\nSuites: ./\nSigned-By: /etc/apt/keyrings/ogr.asc\n' > /etc/apt/sources.list.d/ogr.sources
+          apt-get update
+          apt-get install -y --no-install-recommends ogr
+          ogr --version
+          repo=$(mktemp -d)
+          git -C "$repo" init -q
+          git -C "$repo" remote add origin git@github.com:VijitSingh97/ogr.git
+          test "$(ogr --print "$repo")" = 'https://github.com/VijitSingh97/ogr'

@@ -1,0 +1,120 @@
+#!/usr/bin/env python3
+"""Open a Git repository's remote in the default browser."""
+import argparse
+import ipaddress
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+from urllib.parse import quote, urlsplit, urlunsplit
+
+VERSION = "0.0.1"
+# ponytail: hosted branch routes only; add explicit routes for other providers when needed.
+BRANCH_ROUTES = {"github.com": "/tree/", "gitlab.com": "/-/tree/", "bitbucket.org": "/src/"}
+
+
+class Error(Exception):
+    pass
+
+
+def git_output(directory, *args):
+    result = subprocess.run(["git", "-C", str(directory), *args], stdout=subprocess.PIPE,
+                            stderr=subprocess.DEVNULL, text=True, encoding="utf-8")
+    if result.returncode:
+        return None
+    return result.stdout[:-1] if result.stdout.endswith("\n") else result.stdout
+
+
+def remote_url(remote):
+    if not remote or any(ord(char) < 32 or 127 <= ord(char) < 160 for char in remote):
+        raise Error("Invalid remote URL.")
+    if "://" not in remote:
+        if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*::", remote):
+            raise Error("Git remote helper transports are unsupported.")
+        scp = re.fullmatch(r"(?:[^/@:\s]+@)?(\[[^\]]+\]|[^/:\s]+):(.+)", remote)
+        if not scp:
+            raise Error("Local paths and non-web remotes are unsupported.")
+        remote = "ssh://" + scp[1] + "/" + scp[2].lstrip("/")
+    try:
+        parsed = urlsplit(remote)
+        if parsed.scheme not in ("https", "http", "ssh", "git"):
+            raise Error("Supported remote types: HTTP(S), SSH, and git://.")
+        host = parsed.hostname
+        port = parsed.port
+        if not host or any(char.isspace() or char in "\\/%" for char in host):
+            raise Error("Invalid remote host.")
+        if ":" in host:
+            host = "[" + str(ipaddress.IPv6Address(host)) + "]"
+        else:
+            host = host.encode("idna").decode("ascii")
+            if not re.fullmatch(r"[A-Za-z0-9._-]+", host):
+                raise Error("Invalid remote host.")
+        web = parsed.scheme in ("http", "https")
+        if port is not None and not 1 <= port <= 65535:
+            raise Error("Invalid remote port.")
+        netloc = host + (f":{port}" if web and port is not None else "")
+        path = parsed.path.rstrip("/")
+        if path.endswith(".git"):
+            path = path[:-4]
+        if not path.strip("/"):
+            raise Error("The remote URL has no repository path.")
+        path = quote(path, safe="/%:@~!$&'()*+,;=-._")
+        return urlunsplit((parsed.scheme if web else "https", netloc, path, "", ""))
+    except (ValueError, UnicodeError) as exc:
+        raise Error("Invalid remote URL.") from exc
+
+
+def open_url(url):
+    if sys.platform == "darwin":
+        opener = "/usr/bin/open"
+    elif sys.platform.startswith("linux"):
+        opener = shutil.which("xdg-open")
+        if not opener:
+            raise Error("xdg-open is required to open a browser; use --print or install xdg-utils.")
+    else:
+        raise Error("Opening a browser is supported on macOS and Linux; use --print.")
+    result = subprocess.run([opener, url], stderr=subprocess.DEVNULL)
+    if result.returncode:
+        raise Error("Could not open the default browser; use --print to get the URL.")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Open a Git repository's remote in your browser.")
+    parser.add_argument("directory", nargs="?", default=".", help="repository directory (default: current directory)")
+    parser.add_argument("-b", "--branch", action="store_true", help="open the current branch on GitHub, GitLab, or Bitbucket")
+    parser.add_argument("-r", "--remote", default="origin", metavar="NAME", help="remote to open (default: origin)")
+    parser.add_argument("-p", "--print", action="store_true", dest="print_url", help="print the URL without opening a browser")
+    parser.add_argument("-V", "--version", action="version", version=f"ogr {VERSION}")
+    args = parser.parse_args()
+    if not shutil.which("git"):
+        raise Error("Git is required. Install Git, then try again.")
+    remote = git_output(Path(args.directory), "remote", "get-url", "--", args.remote)
+    if remote is None:
+        raise Error("Not a Git repository or the selected remote does not exist. Use --remote NAME to select one.")
+    url = remote_url(remote)
+    if args.branch:
+        branch = git_output(Path(args.directory), "symbolic-ref", "--quiet", "--short", "HEAD")
+        if not branch:
+            raise Error("Cannot determine the current branch (detached HEAD).")
+        host = urlsplit(url).hostname
+        route = BRANCH_ROUTES.get(host)
+        if not route:
+            raise Error("Branch links support github.com, gitlab.com, and bitbucket.org. Open this repository without --branch.")
+        if host == "bitbucket.org" and "/" in branch:
+            raise Error("Bitbucket branch links do not support slashes. Open the repository without --branch.")
+        url += route + quote(branch, safe="")
+    if args.print_url:
+        print(url)
+    else:
+        open_url(url)
+        print(f"Opening {url}")
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except (Error, OSError, UnicodeError) as exc:
+        print(f"ogr: {exc}", file=sys.stderr)
+        sys.exit(1)

@@ -1,0 +1,16 @@
+#compdef ogr
+
+_ogr() {
+  local -a remotes
+  remotes=("${(@f)$(git -C . remote 2>/dev/null)}")
+
+  _arguments \
+    '(-b --branch)'{-b,--branch}'[open the current branch]' \
+    '(-r --remote)'{-r,--remote}'[select a remote]:remote:($remotes)' \
+    '(-p --print)'{-p,--print}'[print the URL without opening it]' \
+    '(-h --help)'{-h,--help}'[show help]' \
+    '(-V --version)'{-V,--version}'[show version]' \
+    '1:directory:_directories'
+}
+
+_ogr "$@"
